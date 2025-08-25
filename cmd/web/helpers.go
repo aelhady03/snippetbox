@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"time"
 )
 
 // serverError helper writes log entry at Error level and sends generic 500 internal server error.
@@ -26,4 +29,37 @@ func (app *application) serverError(w http.ResponseWriter, r *http.Request, err 
 // clientError helper sends a specific status code and corresponding description.
 func (app *application) clientError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
+}
+
+// render renders a template with associated data.
+// render the template in two stages: write them into buffer first
+// if everything is good, write from the buffer to the response writer
+// if something wrong, return a server error to the user.
+func (app *application) render(w http.ResponseWriter, r *http.Request, status int, page string, data templateData) {
+	ts, ok := app.templateCache[page]
+	if !ok {
+		err := fmt.Errorf("the template %s does not exist", page)
+		app.serverError(w, r, err)
+		return
+	}
+
+	buf := new(bytes.Buffer)
+
+	// write it to the buffer first?
+	err := ts.ExecuteTemplate(buf, "base", data)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.WriteHeader(status)
+
+	// all is good? write then to the response writer
+	buf.WriteTo(w)
+}
+
+func (app *application) newTemplateData(r *http.Request) templateData {
+	return templateData{
+		CurrentYear: time.Now().Year(),
+	}
 }
